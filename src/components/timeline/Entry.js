@@ -15,7 +15,7 @@ export default function Entry({
   runningScamTotal,
   currentRunningScamTotal,
   setCurrentRunningScamTotal,
-  shouldScrollToElement,
+  shouldScrollTo,
 }) {
   const ref = useRef();
   useEffect(() => {
@@ -165,7 +165,7 @@ export default function Entry({
   return (
     <div
       className={`timeline-entry ${className}`}
-      ref={shouldScrollToElement ? ref : null}
+      ref={shouldScrollTo === entry.id ? ref : null}
     >
       <div className={`timeline-icon ${entry.color || "purple"}`}>
         {renderIcon()}
@@ -204,5 +204,5 @@ Entry.propTypes = {
   runningScamTotal: PropTypes.number.isRequired,
   currentRunningScamTotal: PropTypes.number.isRequired,
   setCurrentRunningScamTotal: PropTypes.func.isRequired,
-  shouldScrollToElement: PropTypes.bool.isRequired,
+  shouldScrollTo: PropTypes.string,
 };

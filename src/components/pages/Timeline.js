@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { useInfiniteQuery } from "react-query";
 import { InView } from "react-intersection-observer";
 
@@ -26,95 +26,146 @@ export default function Timeline() {
 
   const getFilteredEntries = useCallback(
     ({ pageParam = null }) => {
-      return getEntries({ ...filters, cursor: pageParam, startAtId });
+      let cursor = null;
+      let direction = "next";
+      if (pageParam) {
+        cursor = pageParam.cursor;
+        direction = pageParam.direction;
+      }
+      return getEntries({ ...filters, startAtId, cursor, direction });
     },
     [filters, startAtId]
   );
 
-  const { data, fetchNextPage, isFetching, isLoading, isError } =
-    useInfiniteQuery(["entries", filters], getFilteredEntries, {
-      getNextPageParam: (lastPage, pages) => {
-        if (!lastPage) {
-          // This is the first fetch, so we have no cursor
-          return null;
-        }
-        if (!lastPage.hasMore) {
-          // No entries remain, return undefined to signal this to react-query
-          return undefined;
-        }
-        return lastPage.entries[lastPage.entries.length - 1]._key;
-      },
-    });
-
-  const hasMoreEntries = useMemo(() => {
-    if (data && data.pages) {
-      return data.pages[data.pages.length - 1].hasMore;
-    }
-    return true;
-  }, [data]);
+  const {
+    data,
+    fetchPreviousPage,
+    fetchNextPage,
+    isFetching,
+    isLoading,
+    isError,
+    hasNextPage,
+    hasPreviousPage,
+  } = useInfiniteQuery(["entries", filters], getFilteredEntries, {
+    getPreviousPageParam: (lastPage, pages) => {
+      if (!lastPage) {
+        // This is the first fetch, so we have no cursor
+        return null;
+      }
+      if (lastPage.hasMoreBefore === false) {
+        // No entries remain, return undefined to signal this to react-query
+        return undefined;
+      }
+      return { cursor: lastPage.entries[0]._key, direction: "prev" };
+    },
+    getNextPageParam: (lastPage, pages) => {
+      if (!lastPage) {
+        // This is the first fetch, so we have no cursor
+        return null;
+      }
+      if (lastPage.hasMore === false) {
+        // No entries remain, return undefined to signal this to react-query
+        return undefined;
+      }
+      return {
+        cursor: lastPage.entries[lastPage.entries.length - 1]._key,
+        direction: "next",
+      };
+    },
+  });
 
   const [currentRunningScamTotal, setCurrentRunningScamTotal] = useState(0);
+  const [shouldScrollTo, setShouldScrollTo] = useState(startAtId);
 
-  const renderScrollSentinel = () => (
+  const renderScrollSentinel = (edge) => (
     <InView
       threshold={0}
       onChange={(inView) => {
         if (inView && !isFetching) {
-          fetchNextPage();
+          if (edge === "top") {
+            setShouldScrollTo(data.pages[0].entries[0]._key);
+            console.log(shouldScrollTo);
+            fetchPreviousPage();
+          } else {
+            setShouldScrollTo(null);
+            fetchNextPage();
+          }
         }
       }}
-    >
-      <div className="scroll-sentinel"></div>
-    </InView>
+      className="scroll-sentinel"
+    />
   );
+
+  const renderEntry = ({
+    entry,
+    entryInd,
+    isFirstPage,
+    isLastPage,
+    isFirstEntry,
+    isLastEntry,
+    runningScamTotal,
+  }) => {
+    let className = entryInd % 2 === 0 ? "even" : "odd";
+    if (isFirstEntry) {
+      className += " first";
+    }
+    if (entry.scamTotal) {
+      runningScamTotal += entry.scamTotal;
+    }
+
+    const entryElement = (
+      <Entry
+        key={entry.id}
+        entry={entry}
+        className={className}
+        windowWidth={windowWidth}
+        runningScamTotal={runningScamTotal}
+        currentRunningScamTotal={currentRunningScamTotal}
+        setCurrentRunningScamTotal={setCurrentRunningScamTotal}
+        shouldScrollTo={shouldScrollTo}
+      />
+    );
+
+    // Render the scroll sentinel above the last entry in the last page of results so we can begin loading
+    // the next page when it comes into view.
+    if ((isFirstPage && isFirstEntry) || (isLastPage && isLastEntry)) {
+      return (
+        <React.Fragment key={`${entry.id}-withSentinel`}>
+          {renderScrollSentinel(isLastPage && isLastEntry ? "bottom" : "top")}
+          {entryElement}
+        </React.Fragment>
+      );
+    }
+    return entryElement;
+  };
 
   const renderEntries = () => {
     let runningScamTotal = 0;
     return (
       <article className="timeline">
+        {hasPreviousPage && <Loader />}
         {data.pages.map((page, pageInd) => {
+          const isFirstPage = pageInd === 0;
           const isLastPage = pageInd === data.pages.length - 1;
           return (
             <React.Fragment key={`page-${pageInd}`}>
               {page.entries.map((entry, entryInd) => {
+                const isFirstEntry = isFirstPage && entryInd === 0;
                 const isLastEntry = entryInd === page.entries.length - 1;
-                let className = entryInd % 2 === 0 ? "even" : "odd";
-                if (pageInd === 0 && entryInd === 0) {
-                  className += " first";
-                }
-                if (entry.scamTotal) {
-                  runningScamTotal += entry.scamTotal;
-                }
-
-                const entryElement = (
-                  <Entry
-                    key={entry.id}
-                    entry={entry}
-                    className={className}
-                    windowWidth={windowWidth}
-                    runningScamTotal={runningScamTotal}
-                    currentRunningScamTotal={currentRunningScamTotal}
-                    setCurrentRunningScamTotal={setCurrentRunningScamTotal}
-                    shouldScrollToElement={entry.id === startAtId}
-                  />
-                );
-
-                // Render the scroll sentinel above the last entry in the last page of results so we can begin loading
-                // the next page when it comes into view.
-                if (isLastPage && isLastEntry) {
-                  return (
-                    <React.Fragment key={`${entry.id}-withSentinel`}>
-                      {renderScrollSentinel()}
-                      {entryElement}
-                    </React.Fragment>
-                  );
-                }
-                return entryElement;
+                return renderEntry({
+                  entry,
+                  entryInd,
+                  isFirstPage,
+                  isLastPage,
+                  isFirstEntry,
+                  isLastEntry,
+                  runningScamTotal,
+                });
               })}
             </React.Fragment>
           );
         })}
-        {hasMoreEntries && <Loader />}
+        {hasNextPage && <Loader />}
       </article>
     );
   };

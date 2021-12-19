@@ -13,5 +13,5 @@ module.exports = {
     sourceType: "module",
   },
   plugins: ["react"],
-  rules: { "react/no-unescaped-entities": 0 },
+  rules: { "react/no-unescaped-entities": 0, "no-unused-vars": "warn" },
 };

@@ -5,7 +5,8 @@ export type EntryQuery = {
   theme: string[];
   tech?: string[];
   blockchain?: string[];
-  sort?: string;
+  sort: "Ascending" | "Descending";
+  direction: "next" | "prev" | null;
 };
 
 type Filter = {

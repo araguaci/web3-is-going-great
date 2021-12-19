@@ -5,25 +5,32 @@ import { EntryQuery } from "./types";
 
 const DEFAULT_LIMIT = 10;
 
-export const getEntries = functions.https.onCall(async (data?: EntryQuery) => {
-  const limit = data?.limit ?? DEFAULT_LIMIT;
+export const getEntries = functions.https.onCall(async (data: EntryQuery) => {
+  const limit = data.limit ?? DEFAULT_LIMIT;
+
   let query = await firestore
     .collection("entries")
-    .orderBy("id", data?.sort === "Ascending" ? "asc" : "desc");
+    .orderBy(
+      "id",
+      (data.sort === "Ascending" && data.direction === "next") ||
+        (data.sort === "Descending" && data.direction === "prev")
+        ? "asc"
+        : "desc"
+    );
 
-  if (data?.theme?.length) {
+  if (data.theme?.length) {
     query = query.where(
       new FieldPath("filters", "theme"),
       "array-contains-any",
       data.theme
     );
-  } else if (data?.tech?.length) {
+  } else if (data.tech?.length) {
     query = query.where(
       new FieldPath("filters", "tech"),
       "array-contains-any",
       data.tech
     );
-  } else if (data?.blockchain?.length) {
+  } else if (data.blockchain?.length) {
     query = query.where(
       new FieldPath("filters", "blockchain"),
       "array-contains-any",
@@ -32,27 +39,37 @@ export const getEntries = functions.https.onCall(async (data?: EntryQuery) => {
   }
 
   let snapshot: any;
-  if (data?.cursor) {
+  if (data.cursor) {
     snapshot = await query.startAfter(data.cursor);
-  } else if (data?.startAtId) {
+  } else if (data.startAtId) {
     snapshot = await query.startAt(data.startAtId);
   } else {
     snapshot = query;
   }
   snapshot = await snapshot.limit(limit + 1).get();
 
-  const entries: object[] = [];
+  const result: {
+    entries: object[];
+    hasMore?: boolean;
+    hasMoreBefore?: boolean;
+  } = {
+    entries: [],
+  };
   let hasMore = false;
   snapshot.forEach((child: QueryDocumentSnapshot) => {
-    if (entries.length < limit) {
-      entries.push({ _key: child.id, ...child.data() });
+    if (result.entries.length < limit) {
+      result.entries.push({ _key: child.id, ...child.data() });
     } else {
       hasMore = true;
     }
   });
 
-  if (!entries) {
-    throw new functions.https.HttpsError("internal", "something went wrong");
+  if (data.direction === "prev") {
+    result.entries = result.entries.reverse();
+    result.hasMoreBefore = hasMore;
+  } else {
+    result.hasMore = hasMore;
   }
-  return { entries, hasMore };
+
+  return result;
 });
